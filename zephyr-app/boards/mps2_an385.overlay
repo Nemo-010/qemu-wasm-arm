@@ -1,0 +1,32 @@
+/*
+ * An SSD1306 on the board's first I2C bus.
+ *
+ * mps2-an385 has three "versatile-i2c" controllers, and QEMU models them
+ * (hw/i2c/arm_sbcon_i2c.c). Attaching a panel here means the same driver code
+ * that runs on a real OLED runs under emulation.
+ */
+
+/ {
+	chosen {
+		zephyr,display = &ssd1306;
+	};
+};
+
+&i2c_shield0 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+
+	ssd1306: ssd1306@3c {
+		compatible = "solomon,ssd1306";
+		reg = <0x3c>;
+		width = <128>;
+		height = <64>;
+		segment-offset = <0>;
+		page-offset = <0>;
+		display-offset = <0>;
+		multiplex-ratio = <63>;
+		segment-remap;
+		com-invdir;
+		prechargep = <0x22>;
+	};
+};

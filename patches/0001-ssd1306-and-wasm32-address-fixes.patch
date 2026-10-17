@@ -1,0 +1,121 @@
+diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
+index 3ada335..1b351ee 100644
+--- a/hw/arm/Kconfig
++++ b/hw/arm/Kconfig
+@@ -576,6 +576,7 @@ config MPS2
+     select UNIMP
+     select CMSDK_APB_WATCHDOG
+     select ARM_SBCON_I2C
++    select SSD1306  # OLED display on the SBCON I2C bus
+ 
+ config FSL_IMX7
+     bool
+diff --git a/hw/arm/mps2.c b/hw/arm/mps2.c
+index 292a180..a65d5d8 100644
+--- a/hw/arm/mps2.c
++++ b/hw/arm/mps2.c
+@@ -44,6 +44,7 @@
+ #include "hw/misc/mps2-fpgaio.h"
+ #include "hw/ssi/pl022.h"
+ #include "hw/i2c/arm_sbcon_i2c.h"
++#include "hw/i2c/i2c.h"
+ #include "hw/net/lan9118.h"
+ #include "net/net.h"
+ #include "hw/watchdog/cmsdk-apb-watchdog.h"
+@@ -455,6 +456,17 @@ static void mps2_common_init(MachineState *machine)
+              */
+             BusState *qbus = qdev_get_child_bus(dev, "i2c");
+             qbus_mark_full(qbus);
++        } else if (i == 2) {
++            /*
++             * An SSD1306 on the first shield connector, which is where a
++             * Zephyr application would put one. Creating it here rather than
++             * leaving it to -device means a firmware that expects a panel finds
++             * one without the caller having to know the bus name.
++             */
++            I2CSlave *oled = i2c_slave_create_simple(
++                qdev_get_child_bus(dev, "i2c"), "ssd1306", 0x3c);
++
++            (void)oled;
+         }
+     }
+     create_unimplemented_device("i2s", 0x40024000, 0x400);
+diff --git a/hw/display/Kconfig b/hw/display/Kconfig
+index 1aafe19..79e944b 100644
+--- a/hw/display/Kconfig
++++ b/hw/display/Kconfig
+@@ -30,6 +30,10 @@ config SII9022
+     depends on I2C
+     select DDC
+ 
++config SSD1306
++    bool
++    depends on I2C
++
+ config SSD0303
+     bool
+     depends on I2C
+diff --git a/hw/display/meson.build b/hw/display/meson.build
+index 344dfe3..07956f9 100644
+--- a/hw/display/meson.build
++++ b/hw/display/meson.build
+@@ -13,6 +13,7 @@ system_ss.add(when: 'CONFIG_JAZZ_LED', if_true: files('jazz_led.c'))
+ system_ss.add(when: 'CONFIG_PL110', if_true: files('pl110.c'))
+ system_ss.add(when: 'CONFIG_SII9022', if_true: files('sii9022.c'))
+ system_ss.add(when: 'CONFIG_SSD0303', if_true: files('ssd0303.c'))
++system_ss.add(when: 'CONFIG_SSD1306', if_true: files('ssd1306.c'))
+ system_ss.add(when: 'CONFIG_SSD0323', if_true: files('ssd0323.c'))
+ system_ss.add(when: 'CONFIG_XEN_BUS', if_true: files('xenfb.c'))
+ 
+diff --git a/include/qemu/osdep.h b/include/qemu/osdep.h
+index 4e0e091..77ae33e 100644
+--- a/include/qemu/osdep.h
++++ b/include/qemu/osdep.h
+@@ -788,12 +788,12 @@ static inline int platform_does_not_support_system(const char *command)
+ /**
+  * If the load average was unobtainable, -1 is returned
+  */
+-#ifndef HAVE_GETLOADAVG_FUNCTION
++#if !defined(HAVE_GETLOADAVG_FUNCTION) && !defined(__EMSCRIPTEN__)
+ static inline int getloadavg(double loadavg[], int nelem)
+ {
+     return -1;
+ }
+-#endif /* !HAVE_GETLOADAVG_FUNCTION */
++#endif /* !HAVE_GETLOADAVG_FUNCTION && !__EMSCRIPTEN__ */
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/tcg/wasm32/tcg-target.c.inc b/tcg/wasm32/tcg-target.c.inc
+index 3c85588..8205d01 100644
+--- a/tcg/wasm32/tcg-target.c.inc
++++ b/tcg/wasm32/tcg-target.c.inc
+@@ -2374,7 +2374,17 @@ static void tcg_wasm_out_qemu_ld(TCGContext *s, const TCGArg *args, bool is_64)
+     // call helper
+     tcg_wasm_out_op_global_get_r(s, TCG_AREG0);
+     tcg_wasm_out_op_i32_wrap_i64(s);
++    /*
++     * The guest address is a 32-bit quantity, but the value in the register can
++     * carry stray high bits: an addend is a uintptr_t and anything that
++     * sign-extends a 32-bit offset fills the upper half. Passing those bits to
++     * the MMU helper makes it look for a page above the 32-bit space, which
++     * shows up as "Invalid read at addr 0x1E000E018" and then as a bus fault in
++     * the guest. Truncating here matches what a 32-bit target does.
++     */
+     tcg_wasm_out_op_global_get_r(s, addr_reg);
++    tcg_wasm_out_op_i32_wrap_i64(s);
++    tcg_wasm_out_op_i64_extend_i32_u(s);
+     tcg_wasm_out_op_i32_const(s, oi);
+     tcg_wasm_out_op_i32_const(s, (int32_t)s->code_ptr);
+ 
+@@ -2503,7 +2513,10 @@ static void tcg_wasm_out_qemu_st(TCGContext *s, const TCGArg *args, bool is_64)
+     // call helper
+     tcg_wasm_out_op_global_get_r(s, TCG_AREG0);
+     tcg_wasm_out_op_i32_wrap_i64(s);
++    /* Truncate the guest address to 32 bits, as for loads. */
+     tcg_wasm_out_op_global_get_r(s, addr_reg);
++    tcg_wasm_out_op_i32_wrap_i64(s);
++    tcg_wasm_out_op_i64_extend_i32_u(s);
+     MemOp mop = get_memop(oi);
+     switch (mop & MO_SSIZE) {
+     case MO_UQ:
