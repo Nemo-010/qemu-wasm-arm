@@ -26,6 +26,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Check the page (isolation, error reporting, artifacts)
+        run: node test/page.js
+
       - name: Check the runtime boots and draws
         run: node test/smoke.js
 

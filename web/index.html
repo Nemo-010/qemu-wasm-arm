@@ -212,6 +212,15 @@ function startPolling() {
 async function boot() {
   document.getElementById('go').disabled = true;
   setStat('st-run', 'starting…');
+  document.getElementById('status').textContent = 'loading firmware…';
+
+  if (typeof createQEMU === 'undefined') {
+    document.getElementById('status').textContent =
+      'the emulator script is not loaded — reload the page.';
+    setStat('st-run', 'failed');
+    document.getElementById('go').disabled = false;
+    return;
+  }
 
   const firmware = await fetch('firmware.bin');
   const fwBytes = new Uint8Array(await firmware.arrayBuffer());
@@ -235,18 +244,76 @@ async function boot() {
   startPolling();
 }
 
+// The button stays disabled until the emulator script has actually loaded.
 window.addEventListener('load', () => {
-  setStat('st-qemu', 'ready', true);
-  document.getElementById('go').disabled = false;
+  if (window.__emulatorReady) {
+    document.getElementById('go').disabled = false;
+  }
 });
+
+setInterval(() => {
+  if (window.__emulatorReady) {
+    document.getElementById('go').disabled = false;
+  }
+}, 200);
 
 document.getElementById('go').addEventListener('click', () => {
   boot().catch((e) => {
     log('error: ' + e.message);
+    document.getElementById('status').textContent = 'boot failed: ' + e.message;
     setStat('st-run', 'failed');
+    document.getElementById('go').disabled = false;
   });
 });
 </script>
-<script src="qemu-system-arm.js"></script>
+<script src="coi-serviceworker.js"></script>
+<script>
+/*
+ * The QEMU build needs pthreads, and pthreads need SharedArrayBuffer, which
+ * browsers only expose to a cross-origin isolated page. GitHub Pages cannot set
+ * the headers that isolation requires, so a service worker adds them and the
+ * page reloads once. Only load the emulator once isolation is real, otherwise
+ * the failure is a bare ReferenceError about SharedArrayBuffer.
+ */
+(function () {
+  const status = (t) => { document.getElementById('status').textContent = t; };
+
+  if (window.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined') {
+    loadEmulator();
+    return;
+  }
+
+  if ('serviceWorker' in navigator) {
+    status('preparing cross-origin isolation…');
+    navigator.serviceWorker.register('coi-serviceworker.js').then(() => {
+      navigator.serviceWorker.ready.then(() => {
+        if (!window.crossOriginIsolated) {
+          // The worker is active but this document predates it.
+          status('reloading with isolation…');
+          window.location.reload();
+        }
+      });
+    }).catch((e) => {
+      status('service worker failed: ' + e.message +
+             ' — this page needs cross-origin isolation for SharedArrayBuffer.');
+    });
+    return;
+  }
+
+  status('this browser cannot run the emulator: no service worker support, ' +
+         'so SharedArrayBuffer cannot be enabled.');
+})();
+
+function loadEmulator() {
+  const s = document.createElement('script');
+  s.src = 'qemu-system-arm.js';
+  s.onload = () => { window.__emulatorReady = true; setStat('st-qemu', 'ready', true); };
+  s.onerror = () => {
+    document.getElementById('status').textContent =
+      'failed to load qemu-system-arm.js';
+  };
+  document.body.appendChild(s);
+}
+</script>
 </body>
 </html>

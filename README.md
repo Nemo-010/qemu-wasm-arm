@@ -170,3 +170,33 @@ picture.
 The wasm32 TCG backend is [ktock/qemu-wasm](https://github.com/ktock/qemu-wasm).
 This repository adds the SSD1306 model, the address fix, the machine wiring and
 the page.
+
+## The page needs cross-origin isolation
+
+The build uses pthreads, and pthreads need `SharedArrayBuffer`. Browsers only
+expose `SharedArrayBuffer` to a **cross-origin isolated** page, which requires
+the server to send:
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+GitHub Pages cannot set response headers. So `web/coi-serviceworker.js` fetches
+each resource and re-serves it with those headers attached; the page registers
+it, reloads once, and only then loads the emulator.
+
+**The first deployed version did not do this, and failed silently.** Pressing
+"Boot firmware" did nothing, because the emulator script threw a
+`SharedArrayBuffer is not defined` error into a console nobody was reading. Two
+things are now different: the page gates the emulator on
+`window.crossOriginIsolated` and says so on screen, and `test/page.js` asserts
+both the isolation setup and that every failure path writes something visible.
+
+If you serve this locally, you can send the headers yourself instead:
+
+```sh
+# any server that can add headers; for example with a tiny proxy
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
