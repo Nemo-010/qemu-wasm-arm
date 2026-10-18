@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QEMU for ARM in the browser</title>
+<title>qemu-wasm-arm</title>
 <style>
   :root {
     color-scheme: dark;
@@ -14,6 +14,7 @@
     --dim: #8b949e;
     --on: #6ee7b7;
     --accent: #58a6ff;
+    --warn: #f0b429;
   }
   * { box-sizing: border-box; }
   body {
@@ -22,11 +23,16 @@
     color: var(--ink);
     font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-  main { max-width: 1000px; margin: 0 auto; padding: 32px 20px 64px; }
-  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.01em; }
-  p.lede { color: var(--dim); margin: 0 0 24px; }
-  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; }
-  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  main { max-width: 1040px; margin: 0 auto; padding: 30px 20px 64px; }
+
+  header { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 24px; }
+  h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h1 code { font-size: 0.9em; }
+  p.lede { color: var(--dim); margin: 0; font-size: 14px; max-width: 66ch; }
+
+  .grid { display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 18px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+
   .card {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -34,81 +40,96 @@
     padding: 16px;
   }
   .card h2 {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--dim);
-    margin: 0 0 12px;
-    font-weight: 600;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--dim); margin: 0 0 12px; font-weight: 600;
   }
+
   #oled {
-    display: block;
-    width: 100%;
-    max-width: 512px;
-    margin: 0 auto;
-    image-rendering: pixelated;
-    background: #000;
-    border-radius: 6px;
-    border: 1px solid var(--line);
+    display: block; width: 100%; max-width: 512px; margin: 0 auto;
+    image-rendering: pixelated; background: #000;
+    border-radius: 6px; border: 1px solid var(--line);
   }
   #screen {
     font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
-    background: #010409;
-    color: #c9d1d9;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 10px;
-    height: 232px;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
+    background: #010409; color: #c9d1d9; border: 1px solid var(--line);
+    border-radius: 6px; padding: 10px; height: 200px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-word;
   }
   .stat { display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }
   .stat span:first-child { color: var(--dim); }
   .stat span:last-child { font-variant-numeric: tabular-nums; }
   .stat.on span:last-child { color: var(--on); }
+
   button {
-    width: 100%;
-    margin-top: 12px;
-    padding: 9px 14px;
-    font: inherit;
-    font-weight: 500;
-    color: var(--ink);
-    background: #21262d;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    cursor: pointer;
+    width: 100%; margin-top: 10px; padding: 9px 14px; font: inherit;
+    font-weight: 500; color: var(--ink); background: #21262d;
+    border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
   }
-  button:hover:not(:disabled) { background: #30363d; border-color: #484f58; }
+  button:hover:not(:disabled) { background: #30363d; }
   button:disabled { opacity: 0.45; cursor: default; }
   button.primary { background: #1f6feb; border-color: #1f6feb; }
   button.primary:hover:not(:disabled) { background: #388bfd; }
+
   .note { color: var(--dim); font-size: 12px; margin: 10px 0 0; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
-  #status { margin-top: 14px; font-size: 13px; color: var(--dim); min-height: 1.5em; }
+  #status { margin-top: 12px; font-size: 13px; color: var(--dim); min-height: 1.5em; }
+
+  /* Repository sections */
+  section { margin-top: 34px; }
+  section > h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--dim); margin: 0 0 12px; font-weight: 600;
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  td code { font-size: 12px; }
+
+  .ok   { color: var(--on); }
+  .bad  { color: #f85149; }
+  .warn { color: var(--warn); }
+
+  .files { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .file {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 11px 13px; text-decoration: none; color: inherit; display: block;
+  }
+  .file:hover { border-color: #484f58; }
+  .file b { display: block; font-size: 13px; font-family: ui-monospace, Menlo, monospace; }
+  .file span { color: var(--dim); font-size: 12px; }
+
+  pre {
+    background: #010409; border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px 14px; overflow-x: auto; font-size: 12px; line-height: 1.5;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #c9d1d9;
+  }
 </style>
 </head>
 <body>
 <main>
-  <h1>QEMU for ARM, compiled to WebAssembly</h1>
-  <p class="lede">
-    A real <code>qemu-system-arm</code> running <code>arm-softmmu</code> in the browser.
-    The firmware below is Zephyr; the panel is an SSD1306 on the emulated I²C bus,
-    read back from the controller's own memory.
-  </p>
+  <header>
+    <h1><code>qemu-wasm-arm</code></h1>
+    <p class="lede">
+      <code>qemu-system-arm</code> compiled to WebAssembly. It runs a real
+      Zephyr application on an emulated <code>mps2-an385</code> and draws on an
+      emulated SSD1306, so the panel below is the controller's own memory rather
+      than a screenshot of a rendered surface.
+    </p>
+  </header>
 
   <div class="grid">
     <div>
       <div class="card">
-        <h2>SSD1306, 128 × 64</h2>
+        <h2>SSD1306 · 128 × 64</h2>
         <canvas id="oled" width="128" height="64"></canvas>
         <p class="note">
-          Every pixel here came out of the emulated controller's GDDRAM over QOM,
-          not from a screenshot of a rendered surface.
+          Read back from the emulated controller's GDDRAM over QOM after each
+          frame. Nothing here is inferred from what the guest says it drew.
         </p>
       </div>
 
-      <div class="card" style="margin-top:20px">
+      <div class="card" style="margin-top:18px">
         <h2>Serial console</h2>
         <div id="screen"></div>
       </div>
@@ -116,32 +137,166 @@
 
     <div>
       <div class="card">
-        <h2>Machine</h2>
+        <h2>This build</h2>
         <div class="stat"><span>Machine</span><span>mps2-an385</span></div>
         <div class="stat"><span>CPU</span><span>Cortex-M3</span></div>
-        <div class="stat"><span>Firmware</span><span id="fw-size">—</span></div>
-        <div class="stat" id="st-qemu"><span>QEMU</span><span>loading…</span></div>
+        <div class="stat"><span>Target</span><span>arm-softmmu</span></div>
+        <div class="stat"><span>QEMU</span><span>8.2.0</span></div>
+        <div class="stat"><span>wasm</span><span id="s-wasm">—</span></div>
+        <div class="stat"><span>Firmware</span><span id="s-fw">—</span></div>
         <div class="stat" id="st-run"><span>Running</span><span>no</span></div>
         <div class="stat on" id="st-panel"><span>Panel</span><span>—</span></div>
         <button id="go" class="primary" disabled>Boot firmware</button>
         <p class="note">
-          The page mounts the firmware into Emscripten's virtual filesystem and
-          hands it to QEMU at runtime, so nothing is baked into the build.
-        </p>
-      </div>
-      <div class="card" style="margin-top:20px">
-        <h2>Why this matters</h2>
-        <p class="note" style="margin:0">
-          A cycle-level ARM machine in the browser means firmware can be run and
-          inspected where it was written. Neucom Sphere would call that the
-          Electrosphere doing its job.
+          The firmware is mounted into Emscripten's virtual filesystem at runtime,
+          so a new build does not need a relink.
         </p>
       </div>
       <div id="status"></div>
+
+      <div class="card" style="margin-top:18px">
+        <h2>Isolation</h2>
+        <p class="note" style="margin:0">
+          This build uses pthreads, so it needs <code>SharedArrayBuffer</code>,
+          which browsers only give to a cross-origin isolated page. GitHub Pages
+          cannot send the headers, so a service worker adds them and the page
+          reloads once.
+        </p>
+      </div>
     </div>
   </div>
+
+  <section>
+    <h2>Test results</h2>
+    <table>
+      <thead><tr><th>Check</th><th>What it proves</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>framebuffer is 128x64 bits</code></td>
+          <td>The panel model allocates and exposes the right GDDRAM</td>
+          <td class="ok">pass</td>
+        </tr>
+        <tr>
+          <td><code>panel is not blank</code></td>
+          <td>The driver actually wrote pixels</td>
+          <td class="ok">pass</td>
+        </tr>
+        <tr>
+          <td><code>top row is a full border</code></td>
+          <td>Horizontal addressing reaches column 127</td>
+          <td class="ok">pass</td>
+        </tr>
+        <tr>
+          <td><code>interior has the moving block</code></td>
+          <td>Vertical bit packing is right, not transposed</td>
+          <td class="ok">pass</td>
+        </tr>
+        <tr>
+          <td><code>no writes outside GDDRAM</code></td>
+          <td>The address window clamps correctly</td>
+          <td class="ok">pass</td>
+        </tr>
+        <tr>
+          <td><code>tickless idle</code></td>
+          <td>Not supported: hangs in <code>sys_clock_elapsed()</code></td>
+          <td class="warn">documented</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note">
+      Run with <code>node test/smoke.js</code>. Every result is measured from the
+      emulated controller, so a broken display path changes the pixels and fails
+      the check.
+    </p>
+  </section>
+
+  <section>
+    <h2>Repository</h2>
+    <div class="files">
+      <a class="file" href="https://github.com/Nemo-010/qemu-wasm-arm/tree/master/web">
+        <b>web/</b><span>The page, the wasm build, the firmware</span>
+      </a>
+      <a class="file" href="https://github.com/Nemo-010/qemu-wasm-arm/tree/master/patches">
+        <b>patches/</b><span>The SSD1306 model and the address fix</span>
+      </a>
+      <a class="file" href="https://github.com/Nemo-010/qemu-wasm-arm/tree/master/zephyr-app">
+        <b>zephyr-app/</b><span>The Zephyr application this boots</span>
+      </a>
+      <a class="file" href="https://github.com/Nemo-010/qemu-wasm-arm/tree/master/test">
+        <b>test/</b><span>The panel readback suite</span>
+      </a>
+      <a class="file" href="https://github.com/Nemo-010/qemu-wasm-arm/blob/master/build.sh">
+        <b>build.sh</b><span>What was actually run to build this</span>
+      </a>
+      <a class="file" href="https://github.com/Nemo-010/qemu-wasm-arm">
+        <b>README.md</b><span>Including what does not work</span>
+      </a>
+    </div>
+  </section>
+
+  <section>
+    <h2>The two bugs that mattered</h2>
+    <pre>wasm32 TCG passed guest addresses to the MMU helpers with stray high bits.
+  0xE000E018 became 0x1E000E018, so the access was rejected and Zephyr
+  surfaced a precise data bus fault the first time it read the timer.
+
+mps2.c marks its first two I2C buses full, so -device on them fails with
+  "bus not found". The machine now creates the panel on the first shield
+  connector itself.</pre>
+    <p class="note">
+      Both are written up in <code>patches/README.md</code> and
+      <code>build.sh</code> alongside the rest of the build workarounds.
+    </p>
+  </section>
 </main>
 
+<script src="coi-serviceworker.js"></script>
+<script>
+/*
+ * The QEMU build needs pthreads, and pthreads need SharedArrayBuffer, which
+ * browsers only expose to a cross-origin isolated page. GitHub Pages cannot set
+ * the headers that isolation requires, so a service worker adds them and the
+ * page reloads once. Only load the emulator once isolation is real, otherwise
+ * the failure is a bare ReferenceError about SharedArrayBuffer.
+ */
+(function () {
+  const status = (t) => { document.getElementById('status').textContent = t; };
+
+  if (window.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined') {
+    loadEmulator();
+    return;
+  }
+
+  if ('serviceWorker' in navigator) {
+    status('preparing cross-origin isolation…');
+    navigator.serviceWorker.register('coi-serviceworker.js').then(() => {
+      navigator.serviceWorker.ready.then(() => {
+        if (!window.crossOriginIsolated) {
+          status('reloading with isolation…');
+          window.location.reload();
+        }
+      });
+    }).catch((e) => {
+      status('service worker failed: ' + e.message +
+             ' — this page needs cross-origin isolation for SharedArrayBuffer.');
+    });
+    return;
+  }
+
+  status('this browser cannot run the emulator: no service worker support, ' +
+         'so SharedArrayBuffer cannot be enabled.');
+})();
+
+function loadEmulator() {
+  const s = document.createElement('script');
+  s.src = 'qemu-system-arm.js';
+  s.onload = () => { window.__emulatorReady = true; };
+  s.onerror = () => {
+    document.getElementById('status').textContent = 'failed to load qemu-system-arm.js';
+  };
+  document.body.appendChild(s);
+}
+</script>
 <script>
 const screenEl = document.getElementById('screen');
 const canvas = document.getElementById('oled');
@@ -150,6 +305,7 @@ const W = 128, H = 64;
 
 let Module = null;
 let running = false;
+let pollTimer = null;
 
 function log(text) {
   const atBottom = screenEl.scrollHeight - screenEl.scrollTop - screenEl.clientHeight < 40;
@@ -163,12 +319,14 @@ function log(text) {
 function setStat(id, value, good) {
   const el = document.getElementById(id);
   el.querySelector('span:last-child').textContent = value;
-  el.classList.toggle('on', !!good);
+  if (good !== undefined) el.classList.toggle('on', good);
 }
 
-// The Zephyr display API stores a monochrome buffer as one byte per eight
-// horizontal pixels with the leftmost pixel in bit 7. The controller keeps its
-// own page layout. Decode the latter here, because this is the panel's memory.
+/*
+ * The Zephyr display API stores a monochrome buffer as one byte per eight
+ * horizontal pixels with the leftmost pixel in bit 7. The controller keeps its
+ * own page layout. Decode the latter here, because this is the panel's memory.
+ */
 function drawPanel(bytes) {
   const img = ctx.createImageData(W, H);
   for (let page = 0; page < 8; page++) {
@@ -196,8 +354,6 @@ function readPanel() {
   return bytes;
 }
 
-let pollTimer = null;
-
 function startPolling() {
   if (pollTimer) return;
   pollTimer = setInterval(() => {
@@ -224,7 +380,7 @@ async function boot() {
 
   const firmware = await fetch('firmware.bin');
   const fwBytes = new Uint8Array(await firmware.arrayBuffer());
-  document.getElementById('fw-size').textContent = fwBytes.length.toLocaleString() + ' B';
+  document.getElementById('s-fw').textContent = fwBytes.length.toLocaleString() + ' B';
   log('firmware ' + fwBytes.length + ' bytes');
 
   Module = await createQEMU({
@@ -234,7 +390,6 @@ async function boot() {
   });
 
   Module.FS.writeFile('/firmware.elf', fwBytes);
-  setStat('st-qemu', 'ready', true);
 
   Module.callMain(['-machine', 'mps2-an385', '-kernel', '/firmware.elf',
                    '-display', 'none', '-serial', 'stdio']);
@@ -244,16 +399,19 @@ async function boot() {
   startPolling();
 }
 
-// The button stays disabled until the emulator script has actually loaded.
-window.addEventListener('load', () => {
-  if (window.__emulatorReady) {
-    document.getElementById('go').disabled = false;
-  }
-});
+/* Report the wasm size so the page says what it is actually running. */
+fetch('qemu-system-arm.wasm', { method: 'HEAD' })
+  .then((r) => {
+    const n = r.headers.get('content-length');
+    if (n) document.getElementById('s-wasm').textContent =
+      (Number(n) / 1048576).toFixed(1) + ' MB';
+  })
+  .catch(() => {});
 
 setInterval(() => {
   if (window.__emulatorReady) {
     document.getElementById('go').disabled = false;
+    setStat('st-run', running ? 'yes' : 'ready', running);
   }
 }, 200);
 
@@ -265,55 +423,6 @@ document.getElementById('go').addEventListener('click', () => {
     document.getElementById('go').disabled = false;
   });
 });
-</script>
-<script src="coi-serviceworker.js"></script>
-<script>
-/*
- * The QEMU build needs pthreads, and pthreads need SharedArrayBuffer, which
- * browsers only expose to a cross-origin isolated page. GitHub Pages cannot set
- * the headers that isolation requires, so a service worker adds them and the
- * page reloads once. Only load the emulator once isolation is real, otherwise
- * the failure is a bare ReferenceError about SharedArrayBuffer.
- */
-(function () {
-  const status = (t) => { document.getElementById('status').textContent = t; };
-
-  if (window.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined') {
-    loadEmulator();
-    return;
-  }
-
-  if ('serviceWorker' in navigator) {
-    status('preparing cross-origin isolation…');
-    navigator.serviceWorker.register('coi-serviceworker.js').then(() => {
-      navigator.serviceWorker.ready.then(() => {
-        if (!window.crossOriginIsolated) {
-          // The worker is active but this document predates it.
-          status('reloading with isolation…');
-          window.location.reload();
-        }
-      });
-    }).catch((e) => {
-      status('service worker failed: ' + e.message +
-             ' — this page needs cross-origin isolation for SharedArrayBuffer.');
-    });
-    return;
-  }
-
-  status('this browser cannot run the emulator: no service worker support, ' +
-         'so SharedArrayBuffer cannot be enabled.');
-})();
-
-function loadEmulator() {
-  const s = document.createElement('script');
-  s.src = 'qemu-system-arm.js';
-  s.onload = () => { window.__emulatorReady = true; setStat('st-qemu', 'ready', true); };
-  s.onerror = () => {
-    document.getElementById('status').textContent =
-      'failed to load qemu-system-arm.js';
-  };
-  document.body.appendChild(s);
-}
 </script>
 </body>
 </html>
